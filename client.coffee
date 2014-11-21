@@ -6,6 +6,7 @@ Page = require 'page'
 Photo = require 'photo'
 Plugin = require 'plugin'
 Server = require 'server'
+Social = require 'social'
 Time = require 'time'
 Ui = require 'ui'
 Loglist = require 'loglist'
@@ -19,11 +20,20 @@ renderPhotoAndComments = (photoId) !->
 	Dom.style padding: 0
 	photo = shared.ref(photoId)
 
-	userId = photo.get('userId')
-	Obs.observe !->
-		if Math.abs(0|(personal.get(photoId, 'seenTime'))) < photo.get('lastEventTime')
-			Server.sync 'seen', photoId
+	byUserId = photo.get('userId')
+
+	Page.setTitle tr("Photo")
 	
+	# remove button
+	if byUserId is Plugin.userId() or Plugin.userIsAdmin()
+		Page.setActions
+			icon: Plugin.resourceUri('icon-trash-48.png')
+			action: !->
+				require('modal').confirm null, tr("Remove photo?"), !->
+					Server.sync 'remove', photoId, !->
+						shared.remove(photoId)
+					Page.back()
+
 	Dom.div !->
 		Dom.style
 			position: 'relative'
@@ -32,112 +42,29 @@ renderPhotoAndComments = (photoId) !->
 			background: Photo.css photo.get('key'), 800
 			backgroundPosition: '50% 50%'
 			backgroundSize: 'cover'
-		if userId is Plugin.userId() or Plugin.userIsAdmin()
-			Dom.onTap !->
-				require('modal').show null, tr("Remove photo?"), (choice) !->
-					if choice is 'remove'
-						Server.sync 'remove', photoId, !->
-							shared.remove(photoId)
-						Page.back()
-				, ['cancel', tr("Cancel"), 'remove', tr("Remove")]
 
 		Dom.div !->
 			Dom.style
 				position: 'absolute'
-				left: 0
-				right: 0
-				bottom: '10px'
-				color: 'white'
+				bottom: '5px'
+				left: '10px'
+				fontSize: '70%'
 				textShadow: '0 1px 0 #000'
-				textAlign: 'center'
-			if userId is Plugin.userId()
-				Dom.text tr("Your photo: tap to remove.")
-			else if Plugin.userIsAdmin()
-				Dom.text tr("Shared by %1: tap to remove", Plugin.userName(userId))
+				color: '#fff'
+			if byUserId is Plugin.userId()
+				Dom.text tr("Added by you")
 			else
-				Dom.text tr("Shared by %1", Plugin.userName(userId))
+				Dom.text tr("Added by %1", Plugin.userName(byUserId))
+			Dom.text " • "
+			Time.deltaText photo.get('time')
 
-	Dom.div !->
-		Dom.style margin: '8px'
-		shared.ref(photoId, 'comments')?.iterate (comment) !->
-			Dom.div !->
-				Dom.style
-					display_: 'box'
-					_boxAlign: 'center'
-
-				Ui.avatar Plugin.userAvatar(comment.get('userId'))
-
-				Dom.section !->
-					Dom.style
-						_boxFlex: 1
-						marginLeft: '8px'
-						margin: '4px'
-					Dom.text comment.get('comment')
-					Dom.div !->
-						Dom.style
-							textAlign: 'left'
-							fontSize: '70%'
-							color: '#aaa'
-							padding: '2px 0 0'
-						Dom.text Plugin.userName(comment.get('userId'))
-						Dom.text " • "
-						Time.deltaText comment.get('time')
-
-	editingItem = Obs.create(false)
-	Dom.div !->
-		Dom.style display_: 'box', _boxAlign: 'center', margin: '8px'
-
-		Ui.avatar Plugin.userAvatar()
-
-		addE = null
-		save = !->
-			return if !addE.value().trim()
-			Server.sync 'addComment', photoId, addE.value().trim()
-			addE.value ""
-			editingItem.set(false)
-			Form.blur()
-
-		Dom.section !->
-			Dom.style display_: 'box', _boxFlex: 1, _boxAlign: 'center', margin: '4px'
-			Dom.div !->
-				Dom.style _boxFlex: 1
-				log 'rendering form.text'
-				addE = Form.text
-					autogrow: true
-					name: 'comment'
-					text: tr("Add a comment")
-					simple: true
-					onChange: (v) !->
-						editingItem.set(!!v?.trim())
-					onReturn: save
-					inScope: !->
-						Dom.prop 'rows', 1
-						Dom.style
-							border: 'none'
-							width: '100%'
-							fontSize: '100%'
-
-			Ui.button !->
-				Dom.style
-					marginRight: 0
-					visibility: (if editingItem.get() then 'visible' else 'hidden')
-				Dom.text tr("Add")
-			, save
-
-	Dom.div !->
-		Dom.style marginTop: '14px'
-		Form.sep()
-		Form.check
-			name: 'notify'
-			value: !((0|(personal.get(photoId, 'seenTime'))) < 0)
-			text: tr("Notify about new comments")
-			onSave: (v) !->
-				Server.sync 'seen', photoId, !v
+	Social.renderComments(photoId)
 
 
 exports.render = !->
 	photoId = Page.state.get(0)
-	if photoId and shared.get(photoId)
+	if photoId # and shared.get(photoId)
+		# we shouldn't redraw this scope whenever something with the photo changes
 		renderPhotoAndComments(photoId)
 		Page.scroll('down') if Page.state.get(1)
 		return
@@ -155,9 +82,16 @@ exports.render = !->
 		# temporary, private API
 		photoUpload.set(true)
 
+	if title = Plugin.title()
+		Dom.h2 !->
+			Dom.style margin: '6px 2px'
+			Dom.text title
+
 	Dom.div !->
+		Dom.cls 'add'
 		Dom.style
 			display: 'inline-block'
+			position: 'relative'
 			verticalAlign: 'top'
 			margin: '2px'
 			background:  "url(#{Plugin.resourceUri('addphoto.png')}) 50% 50% no-repeat"
@@ -186,7 +120,10 @@ exports.render = !->
 				_boxPack: 'center'
 			Ui.spinner 24
 
-	firstV = Obs.create(-Math.max(1, (shared.peek('maxId')||0)-10))
+	if fv = Page.state.get('_firstV')
+		firstV = Obs.create(fv)
+	else
+		firstV = Obs.create(-Math.max(1, (shared.peek('maxId')||0)-10))
 	lastV = Obs.create()
 		# firstV and lastV are inversed when they go into Loglist
 	Obs.observe !->
@@ -217,31 +154,8 @@ exports.render = !->
 				Dom.onTap !->
 					Page.nav num
 
-				seenTime = Math.abs(0|(personal.get(num, 'seenTime')))
-				lastEventTime = 0|photo.get('lastEventTime')
-				if seenTime < lastEventTime
-					Dom.div !->
-						Dom.style
-							position: 'absolute'
-							bottom: 0
-							left: 0
-							right: 0
-							color: '#fff'
-							lineHeight: '30px'
-							textAlign: 'center'
-							backgroundColor: 'rgba(0, 0, 0, 0.5)'
-							padding: '4px'
-							fontWeight: 'bold'
-							fontSize: '75%'
-							textTransform: 'uppercase'
-
-						if +photo.get('lastEventTime') is +photo.get('time')
-							Dom.text tr("New photo")
-						else
-							newCount = photo.ref('comments').map( (c) -> if c.get('time') > seenTime then c ).count()
-							Dom.text tr("+%1 comment|s", newCount.get())
-						Dom.onTap !->
-							Page.nav [num, 'end'] # scroll down
+				if unread = Social.newComments photo.key()
+					Ui.unread unread, null, {position: 'absolute', top: '15px', right: 0}
 
 	Dom.div !->
 		if firstV.get()==-1
@@ -252,10 +166,12 @@ exports.render = !->
 			textAlign: 'center'
 
 		Ui.button tr("Earlier photos"), !->
-			firstV.set Math.min(-1, firstV.peek()+10)
+			fv = Math.min(-1, firstV.peek()+10)
+			firstV.set fv
+			Page.state.set('_firstV', fv)
 
 Dom.css
-	'.photo.tap::after':
+	'.add.tap::after, .photo.tap::after':
 		content: '""'
 		display: 'block'
 		position: 'absolute'
@@ -263,5 +179,5 @@ Dom.css
 		right: 0
 		top: 0
 		bottom: 0
-		backgroundColor: 'rgba(0, 0, 0, 0.3)'
+		backgroundColor: 'rgba(0, 0, 0, 0.2)'
 

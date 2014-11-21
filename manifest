@@ -1,0 +1,5 @@
+name: Gallery
+description: Upload and comment on photos.
+icon: photo3
+api: 2
+store: 900
