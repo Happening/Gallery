@@ -1,8 +1,9 @@
 Plugin = require 'plugin'
 Db = require 'db'
 Event = require 'event'
-#Photo = require 'photo'
+Photo = require 'photo'
 
+###
 exports.onUpgrade  = !->
 	log 'trying onUpgrade'
 
@@ -32,6 +33,7 @@ exports.onUpgrade  = !->
 
 		#log 'new comments: '+JSON.stringify(allComments)
 		#Db.shared.merge('comments', allComments)
+###
 
 
 exports.onPhoto = (info) !->
@@ -46,11 +48,13 @@ exports.onPhoto = (info) !->
 		unit: 'photo'
 		text: "#{name} added a photo"
 		new: ['all', -Plugin.userId()]
+		#nav: [maxId]
+		# doesn't work yet
 
 exports.client_remove = (photoId) !->
 	userId = Db.shared.get(photoId, 'userId')
 	return if userId != Plugin.userId() and !Plugin.userIsAdmin()
 
+	Photo.remove key if key = Db.shared.get(photoId, 'key')
 	Db.shared.remove(photoId)
-	# todo: Photo.remove
 

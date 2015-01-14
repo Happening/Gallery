@@ -1,6 +1,8 @@
 Db = require 'db'
 Dom = require 'dom'
 Form = require 'form'
+Icon = require 'icon'
+Modal = require 'modal'
 Obs = require 'obs'
 Page = require 'page'
 Photo = require 'photo'
@@ -12,9 +14,11 @@ Ui = require 'ui'
 Loglist = require 'loglist'
 {tr} = require 'i18n'
 
+PhotoView = require 'photoview' # included with plugin
+
 shared = Db.shared
 personal = Db.personal
-
+			
 renderPhotoAndComments = (photoId) !->
 	# bigger photoview, including comments
 	Dom.style padding: 0
@@ -23,40 +27,47 @@ renderPhotoAndComments = (photoId) !->
 	byUserId = photo.get('userId')
 
 	Page.setTitle tr("Photo")
-	
-	# remove button
+
+	opts = []
+	if Photo.share
+		opts.push
+			label: tr('Share')
+			icon: 'share'
+			action: !-> Photo.share photo.peek('key')
+	if Photo.download
+		opts.push
+			label: tr('Download')
+			icon: 'boxdown'
+			action: !-> Photo.download photo.peek('key')
 	if byUserId is Plugin.userId() or Plugin.userIsAdmin()
-		Page.setActions
-			icon: Plugin.resourceUri('icon-trash-48.png')
+		opts.push
+			label: tr('Remove')
+			icon: 'trash'
 			action: !->
-				require('modal').confirm null, tr("Remove photo?"), !->
+				Modal.confirm null, tr("Remove photo?"), !->
 					Server.sync 'remove', photoId, !->
 						shared.remove(photoId)
 					Page.back()
+	
+	Page.setActions opts
 
-	Dom.div !->
-		Dom.style
-			position: 'relative'
-			height: Dom.viewport.get('width') + 'px'
-			width: Dom.viewport.get('width') + 'px'
-			background: Photo.css photo.get('key'), 800
-			backgroundPosition: '50% 50%'
-			backgroundSize: 'cover'
-
-		Dom.div !->
-			Dom.style
-				position: 'absolute'
-				bottom: '5px'
-				left: '10px'
-				fontSize: '70%'
-				textShadow: '0 1px 0 #000'
-				color: '#fff'
-			if byUserId is Plugin.userId()
-				Dom.text tr("Added by you")
-			else
-				Dom.text tr("Added by %1", Plugin.userName(byUserId))
-			Dom.text " • "
-			Time.deltaText photo.get('time')
+	PhotoView.render
+		key: photo.get('key')
+		content: !->
+			Dom.div !->
+				Dom.style
+					position: 'absolute'
+					bottom: '5px'
+					left: '10px'
+					fontSize: '70%'
+					textShadow: '0 1px 0 #000'
+					color: '#fff'
+				if byUserId is Plugin.userId()
+					Dom.text tr("Added by you")
+				else
+					Dom.text tr("Added by %1", Plugin.userName(byUserId))
+				Dom.text " • "
+				Time.deltaText photo.get('time')
 
 	Social.renderComments(photoId)
 
@@ -77,11 +88,7 @@ exports.render = !->
 		cnt = (0|(width / 100)) || 1
 		boxSize.set(0|(width-((cnt+1)*4))/cnt)
 
-	photoUpload = Obs.create()
-	Photo.onBusy !->
-		# temporary, private API
-		photoUpload.set(true)
-
+	
 	if title = Plugin.title()
 		Dom.h2 !->
 			Dom.style margin: '6px 2px'
@@ -102,25 +109,25 @@ exports.render = !->
 		Dom.onTap !->
 			Photo.pick()
 
-	Dom.div !->
-		if not photoUpload.get()
-			Dom.style display: 'none'
-			return
+	Obs.observe !->
+		log 'UPL!', Photo.uploads.get()
 
-		Dom.style
-			display: 'inline-block'
-			margin: '2px'
-			height: boxSize.get() + 'px'
-			width: boxSize.get() + 'px'
+	Photo.uploads.observeEach (upload) !->
 		Dom.div !->
 			Dom.style
-				display_: 'box'
-				height: '100%'
-				_boxAlign: 'center'
-				_boxPack: 'center'
-			Ui.spinner 24
+				margin: '2px'
+				display: 'inline-block'
+				Box: 'inline right bottom'
+				height: boxSize.get() + 'px'
+				width: boxSize.get() + 'px'
+			if thumb = upload.get('thumb')
+				Dom.style
+					background: "url(#{thumb}) 50% 50% no-repeat"
+					backgroundSize: 'cover'
+			Dom.cls 'photo'
+			Ui.spinner 24, undefined, 'spin-light.png'
 
-	if fv = Page.state.get('_firstV')
+	if fv = Page.state.get('firstV')
 		firstV = Obs.create(fv)
 	else
 		firstV = Obs.create(-Math.max(1, (shared.peek('maxId')||0)-10))
@@ -133,8 +140,6 @@ exports.render = !->
 		num = -num
 		photo = shared.ref(num)
 		return if !photo.get('key')
-
-		photoUpload.set(false)
 
 		Dom.div !->
 			Dom.style
@@ -168,7 +173,7 @@ exports.render = !->
 		Ui.button tr("Earlier photos"), !->
 			fv = Math.min(-1, firstV.peek()+10)
 			firstV.set fv
-			Page.state.set('_firstV', fv)
+			Page.state.set('firstV', fv)
 
 Dom.css
 	'.add.tap::after, .photo.tap::after':
