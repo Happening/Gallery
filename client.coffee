@@ -1,5 +1,6 @@
 Db = require 'db'
 Dom = require 'dom'
+Event = require 'event'
 Form = require 'form'
 Icon = require 'icon'
 Modal = require 'modal'
@@ -14,8 +15,6 @@ Ui = require 'ui'
 Loglist = require 'loglist'
 {tr} = require 'i18n'
 
-PhotoView = require 'photoview' # included with plugin
-
 shared = Db.shared
 personal = Db.personal
 			
@@ -27,6 +26,7 @@ renderPhotoAndComments = (photoId) !->
 	byUserId = photo.get('userId')
 
 	Page.setTitle tr("Photo")
+	Event.showStar tr("this photo")
 
 	opts = []
 	if Photo.share
@@ -51,7 +51,7 @@ renderPhotoAndComments = (photoId) !->
 	
 	Page.setActions opts
 
-	PhotoView.render
+	(require 'photoview').render
 		key: photo.get('key')
 		content: !->
 			Dom.div !->
@@ -109,9 +109,6 @@ exports.render = !->
 		Dom.onTap !->
 			Photo.pick()
 
-	Obs.observe !->
-		log 'UPL!', Photo.uploads.get()
-
 	Photo.uploads.observeEach (upload) !->
 		Dom.div !->
 			Dom.style
@@ -136,10 +133,17 @@ exports.render = !->
 	Obs.observe !->
 		lastV.set -(shared.get('maxId')||0)
 
+	log 'firstV, lastV', firstV.get(), lastV.get()
+	photoCnt = 0
+	empty = Obs.create(true)
 	Loglist.render lastV, firstV, (num) !->
 		num = -num
 		photo = shared.ref(num)
 		return if !photo.get('key')
+
+		empty.set(!++photoCnt)
+		Obs.onClean !->
+			empty.set(!--photoCnt)
 
 		Dom.div !->
 			Dom.style
@@ -159,8 +163,7 @@ exports.render = !->
 				Dom.onTap !->
 					Page.nav num
 
-				if unread = Social.newComments photo.key()
-					Ui.unread unread, null, {position: 'absolute', top: '15px', right: 0}
+				Event.renderBubble [photo.key()], style: { position: 'absolute', top: '15px', right: 0 }
 
 	Dom.div !->
 		if firstV.get()==-1
@@ -174,6 +177,23 @@ exports.render = !->
 			fv = Math.min(-1, firstV.peek()+10)
 			firstV.set fv
 			Page.state.set('firstV', fv)
+
+	Obs.observe !->
+		if empty.get() and !Photo.uploads.count().get()
+			Dom.div !->
+				Dom.style
+					display: 'inline-block'
+					height: boxSize.get()-20 + 'px'
+					width: 2*boxSize.get()-20 + 'px'
+					padding: '10px'
+
+				Dom.div !->
+					Dom.style
+						Box: 'center middle'
+						height: '100%'
+						textAlign: 'center'
+						color: '#aaa'
+					Dom.text tr("No photos or images have been added yet")
 
 Dom.css
 	'.add.tap::after, .photo.tap::after':
