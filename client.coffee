@@ -53,21 +53,34 @@ renderPhotoAndComments = (photoId) !->
 
 	(require 'photoview').render
 		key: photo.get('key')
-		content: !->
-			Dom.div !->
-				Dom.style
-					position: 'absolute'
-					bottom: '5px'
-					left: '10px'
-					fontSize: '70%'
-					textShadow: '0 1px 0 #000'
-					color: '#fff'
-				if byUserId is Plugin.userId()
-					Dom.text tr("Added by you")
-				else
-					Dom.text tr("Added by %1", Plugin.userName(byUserId))
-				Dom.text " • "
-				Time.deltaText photo.get('time')
+
+	Dom.div !->
+		Dom.style padding: '8px', backgroundColor: '#333', borderBottom: '2px solid #aaa', textAlign: 'center'
+
+		expanded = Obs.create false
+		Dom.div !->
+			Dom.style fontSize: '70%', color: '#aaa'
+			if byUserId is Plugin.userId()
+				Dom.text tr("Added by you")
+			else
+				Dom.text tr("Added by %1", Plugin.userName(byUserId))
+			Dom.text " • "
+			Time.deltaText photo.get('time'), 'short'
+			Dom.text " • "
+			expanded = Social.renderLike
+				path: [photoId]
+				id: 'p'+photoId
+				userId: byUserId
+				color: 'white'
+				aboutWhat: tr("photo")
+
+		Obs.observe !->
+			if expanded.get()
+				Social.renderLikeNames
+					path: [photoId]
+					id: 'p'+photoId
+					color: 'white'
+					userId: byUserId
 
 	Social.renderComments(photoId)
 
@@ -88,12 +101,6 @@ exports.render = !->
 		cnt = (0|(width / 100)) || 1
 		boxSize.set(0|(width-((cnt+1)*4))/cnt)
 
-	
-	if title = Plugin.title()
-		Dom.h2 !->
-			Dom.style margin: '6px 2px'
-			Dom.text title
-
 	Dom.div !->
 		Dom.cls 'add'
 		Dom.style
@@ -107,6 +114,8 @@ exports.render = !->
 			height: (boxSize.get()-4) + 'px'
 			width: (boxSize.get()-4) + 'px'
 		Dom.onTap !->
+			# TODO: subscribe serverside
+			Event.subscribe [(shared.get('maxId')||0)+1]
 			Photo.pick()
 
 	Photo.uploads.observeEach (upload) !->
@@ -114,6 +123,7 @@ exports.render = !->
 			Dom.style
 				margin: '2px'
 				display: 'inline-block'
+				verticalAlign: 'top'
 				Box: 'inline right bottom'
 				height: boxSize.get() + 'px'
 				width: boxSize.get() + 'px'
@@ -122,7 +132,9 @@ exports.render = !->
 					background: "url(#{thumb}) 50% 50% no-repeat"
 					backgroundSize: 'cover'
 			Dom.cls 'photo'
-			Ui.spinner 24, undefined, 'spin-light.png'
+			Ui.spinner 24, !->
+				Dom.style margin: '4px'
+			, 'spin-light.png'
 
 	if fv = Page.state.get('firstV')
 		firstV = Obs.create(fv)

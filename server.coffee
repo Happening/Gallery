@@ -47,7 +47,7 @@ exports.onPhoto = (info) !->
 	Event.create
 		unit: 'photo'
 		text: "#{name} added a photo"
-		new: ['all', -Plugin.userId()]
+		sender: Plugin.userId()
 		#nav: [maxId]
 		# doesn't work yet
 
