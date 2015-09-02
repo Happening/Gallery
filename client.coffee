@@ -17,80 +17,95 @@ Loglist = require 'loglist'
 
 shared = Db.shared
 personal = Db.personal
-			
+
 renderPhotoAndComments = (photoId) !->
 	# bigger photoview, including comments
 	Dom.style padding: 0
-	photo = shared.ref(photoId)
+	Event.showStar tr("this photo") # TODO how to fix when swiping to other image?
 
-	byUserId = photo.get('userId')
-
-	Page.setTitle tr("Photo")
-	Event.showStar tr("this photo")
-
-	opts = []
-	if Photo.share
-		opts.push
-			label: tr('Share')
-			icon: 'share'
-			action: !-> Photo.share photo.peek('key')
-	if Photo.download
-		opts.push
-			label: tr('Download')
-			icon: 'boxdown'
-			action: !-> Photo.download photo.peek('key')
-	if byUserId is Plugin.userId() or Plugin.userIsAdmin()
-		opts.push
-			label: tr('Remove')
-			icon: 'trash'
-			action: !->
-				Modal.confirm null, tr("Remove photo?"), !->
-					Server.sync 'remove', photoId, !->
-						shared.remove(photoId)
-					Page.back()
-	
-	Page.setActions opts
-
-	(require 'photoview').render
-		key: photo.get('key')
-
-	Dom.div !->
-		Dom.style padding: '8px', backgroundColor: '#333', borderBottom: '2px solid #aaa', textAlign: 'center'
-
-		expanded = Obs.create false
+	contentFunc = (photoId) !->
+		photo = shared.ref(photoId)
+		byUserId = photo.get('userId')
 		Dom.div !->
-			Dom.style fontSize: '70%', color: '#aaa'
-			if byUserId is Plugin.userId()
-				Dom.text tr("Added by you")
-			else
-				Dom.text tr("Added by %1", Plugin.userName(byUserId))
-			Dom.text " • "
-			Time.deltaText photo.get('time'), 'short'
-			Dom.text " • "
-			expanded = Social.renderLike
-				path: [photoId]
-				id: 'p'+photoId
-				userId: byUserId
-				color: 'white'
-				aboutWhat: tr("photo")
-
-		Obs.observe !->
-			if expanded.get()
-				Social.renderLikeNames
+			Dom.style
+				marginTop: "-1px" # Prevents white lines between this and photoview because of rounding
+				padding: '8px'
+				backgroundColor: '#333',
+				borderBottom: '2px solid #aaa'
+				textAlign: 'center'
+			expanded = Obs.create false
+			Dom.div !->
+				Dom.style fontSize: '70%', color: '#aaa'
+				if byUserId is Plugin.userId()
+					Dom.text tr("Added by you")
+				else
+					Dom.text tr("Added by %1", Plugin.userName(byUserId))
+				Dom.text " • "
+				Time.deltaText photo.get('time'), 'short'
+				Dom.text " • "
+				expanded = Social.renderLike
 					path: [photoId]
 					id: 'p'+photoId
-					color: 'white'
 					userId: byUserId
+					color: 'white'
+					aboutWhat: tr("photo")
 
-	Social.renderComments(photoId)
+			Obs.observe !->
+				if expanded.get()
+					Social.renderLikeNames
+						path: [photoId]
+						id: 'p'+photoId
+						color: 'white'
+						userId: byUserId
+		Social.renderComments(photoId)
+		Page.setTitle tr("Added by %1", if byUserId is Plugin.userId() then "you" else Plugin.userName(byUserId))
+		opts = []
+		if Photo.share
+			opts.push
+				label: tr('Share')
+				icon: 'share'
+				action: !-> Photo.share photo.peek('key')
+		if Photo.download
+			opts.push
+				label: tr('Download')
+				icon: 'boxdown'
+				action: !-> Photo.download photo.peek('key')
+		if byUserId is Plugin.userId() or Plugin.userIsAdmin()
+			opts.push
+				label: tr('Remove')
+				icon: 'trash'
+				action: !->
+					Modal.confirm null, tr("Remove photo?"), !->
+						Server.sync 'remove', photoId, !->
+							shared.remove(photoId)
+						Page.back()
 
+		Page.setActions opts
+		Page.state.set 0, photoId
+
+	(require 'photoview').render
+		current: photoId
+		getNeighbourIds: (id) ->
+			max = Db.shared.peek('maxId')||0
+			right = parseInt(id)-1
+			while !Db.shared.isHash(right) && right > 0
+				right--
+			left = parseInt(id)+1
+			while !Db.shared.isHash(left) && left <= max
+				left++
+			left = undefined if !Db.shared.isHash(left)
+			right = undefined if !Db.shared.isHash(right)
+			[left,right]
+		idToPhotoKey: (id) ->
+			Db.shared.peek(id, 'key')
+		content: contentFunc
 
 exports.render = !->
-	photoId = Page.state.get(0)
+	photoId = Page.state.peek(0)
 	if photoId # and shared.get(photoId)
 		# we shouldn't redraw this scope whenever something with the photo changes
 		renderPhotoAndComments(photoId)
-		Page.scroll('down') if Page.state.get(1)
+		Page.scroll('down') if Page.state.peek(1)
 		return
 
 	# main page: overview of the photos
@@ -139,7 +154,7 @@ exports.render = !->
 	if fv = Page.state.get('firstV')
 		firstV = Obs.create(fv)
 	else
-		firstV = Obs.create(-Math.max(1, (shared.peek('maxId')||0)-10))
+		firstV = Obs.create(-Math.max(1, (shared.peek('maxId')||0)-50))
 	lastV = Obs.create()
 		# firstV and lastV are inversed when they go into Loglist
 	Obs.observe !->
@@ -186,7 +201,7 @@ exports.render = !->
 			textAlign: 'center'
 
 		Ui.button tr("Earlier photos"), !->
-			fv = Math.min(-1, firstV.peek()+10)
+			fv = Math.min(-1, firstV.peek()+50)
 			firstV.set fv
 			Page.state.set('firstV', fv)
 
@@ -196,7 +211,7 @@ exports.render = !->
 				Dom.style
 					display: 'inline-block'
 					height: boxSize.get()-20 + 'px'
-					width: 2*boxSize.get()-20 + 'px'
+					width: 1.4*boxSize.get() + 'px'
 					padding: '10px'
 
 				Dom.div !->
