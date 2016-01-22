@@ -1,3 +1,4 @@
+Comments = require 'comments'
 Db = require 'db'
 Dom = require 'dom'
 Event = require 'event'
@@ -7,9 +8,8 @@ Modal = require 'modal'
 Obs = require 'obs'
 Page = require 'page'
 Photo = require 'photo'
-Plugin = require 'plugin'
+App = require 'app'
 Server = require 'server'
-Social = require 'social'
 Time = require 'time'
 Ui = require 'ui'
 Loglist = require 'loglist'
@@ -21,44 +21,33 @@ personal = Db.personal
 renderPhotoAndComments = (photoId) !->
 	# bigger photoview, including comments
 	Dom.style padding: 0
-	Event.showStar tr("this photo") # TODO how to fix when swiping to other image?
+	Event.showStar tr("this photo")
 
 	contentFunc = (photoId) !->
 		photo = shared.ref(photoId)
 		byUserId = photo.get('userId')
+		Dom.style margin: '0px'
 		Dom.div !->
 			Dom.style
-				marginTop: "-1px" # Prevents white lines between this and photoview because of rounding
 				padding: '8px'
 				backgroundColor: '#333',
-				borderBottom: '2px solid #aaa'
 				textAlign: 'center'
-			expanded = Obs.create false
+				height: '13px' # make sure the photoview's height correction is pixel-perfect (13+2*8 = 29)
 			Dom.div !->
 				Dom.style fontSize: '70%', color: '#aaa'
-				if byUserId is Plugin.userId()
-					Dom.text tr("Added by you")
-				else
-					Dom.text tr("Added by %1", Plugin.userName(byUserId))
+				Dom.text tr("Photo by %1", if byUserId is App.userId() then tr("you") else App.userName(byUserId))
 				Dom.text " • "
 				Time.deltaText photo.get('time'), 'short'
 				Dom.text " • "
-				expanded = Social.renderLike
-					path: [photoId]
-					id: 'p'+photoId
+				Comments.renderLike
+					store: ['likes', photoId+'-p'+photoId] # legacy path.. wtf!
 					userId: byUserId
+					noExpand: true
 					color: 'white'
 					aboutWhat: tr("photo")
 
-			Obs.observe !->
-				if expanded.get()
-					Social.renderLikeNames
-						path: [photoId]
-						id: 'p'+photoId
-						color: 'white'
-						userId: byUserId
-		Social.renderComments(photoId)
-		Page.setTitle tr("Added by %1", if byUserId is Plugin.userId() then "you" else Plugin.userName(byUserId))
+		Comments.enable legacyStore: photoId
+		Page.setTitle tr("Photo by %1", if byUserId is App.userId() then tr("you") else App.userName(byUserId))
 		opts = []
 		if Photo.share
 			opts.push
@@ -68,12 +57,12 @@ renderPhotoAndComments = (photoId) !->
 		if Photo.download
 			opts.push
 				label: tr('Download')
-				icon: 'boxdown'
+				icon: 'download'
 				action: !-> Photo.download photo.peek('key')
-		if byUserId is Plugin.userId() or Plugin.userIsAdmin()
+		if byUserId is App.userId() or App.userIsAdmin()
 			opts.push
 				label: tr('Remove')
-				icon: 'trash'
+				icon: 'delete'
 				action: !->
 					Modal.confirm null, tr("Remove photo?"), !->
 						Server.sync 'remove', photoId, !->
@@ -98,10 +87,21 @@ renderPhotoAndComments = (photoId) !->
 			[left,right]
 		idToPhotoKey: (id) ->
 			Db.shared.peek(id, 'key')
+		height: -> Page.height() - 29 # space for subtext
+		fullHeight: true
 		content: contentFunc
+
+exports.renderSettings = !->
+	Form.input
+		name: '_title'
+		text: tr('Optional gallery topic')
+		value: App.title()
 
 exports.render = !->
 	photoId = Page.state.peek(0)
+	if photoId is '_settings'
+		log "we should not be rendering the client!"
+		photoId = null
 	if photoId # and shared.get(photoId)
 		# we shouldn't redraw this scope whenever something with the photo changes
 		renderPhotoAndComments(photoId)
@@ -112,7 +112,7 @@ exports.render = !->
 	Dom.style padding: '2px'
 	boxSize = Obs.create()
 	Obs.observe !->
-		width = Dom.viewport.get('width')
+		width = Page.width()
 		cnt = (0|(width / 100)) || 1
 		boxSize.set(0|(width-((cnt+1)*4))/cnt)
 
@@ -123,7 +123,7 @@ exports.render = !->
 			position: 'relative'
 			verticalAlign: 'top'
 			margin: '2px'
-			background:  "url(#{Plugin.resourceUri('addphoto.png')}) 50% 50% no-repeat"
+			background:  "url(#{App.resourceUri('addphoto.png')}) 50% 50% no-repeat"
 			backgroundSize: '32px'
 			border: 'dashed 2px #aaa'
 			height: (boxSize.get()-4) + 'px'
@@ -147,9 +147,11 @@ exports.render = !->
 					background: "url(#{thumb}) 50% 50% no-repeat"
 					backgroundSize: 'cover'
 			Dom.cls 'photo'
-			Ui.spinner 24, !->
-				Dom.style margin: '4px'
-			, 'spin-light.png'
+			Ui.spinner
+				size: 24
+				content: !->
+					Dom.style margin: '4px'
+				light: true
 
 	if fv = Page.state.get('firstV')
 		firstV = Obs.create(fv)
@@ -190,7 +192,12 @@ exports.render = !->
 				Dom.onTap !->
 					Page.nav num
 
-				Event.renderBubble [photo.key()], style: { position: 'absolute', top: '15px', right: 0 }
+				Event.renderBubble
+					path: [photo.key()]
+					style:
+						position: 'absolute'
+						top: '15px'
+						right: 0
 
 	Dom.div !->
 		if firstV.get()==-1

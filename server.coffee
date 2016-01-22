@@ -1,4 +1,4 @@
-Plugin = require 'plugin'
+App = require 'app'
 Db = require 'db'
 Event = require 'event'
 Photo = require 'photo'
@@ -43,17 +43,17 @@ exports.onPhoto = (info) !->
 	info.time = nowTime
 	Db.shared.set(maxId, info)
 
-	name = Plugin.userName()
+	name = App.userName()
 	Event.create
 		unit: 'photo'
 		text: "#{name} added a photo"
-		sender: Plugin.userId()
+		sender: App.userId()
 		#nav: [maxId]
 		# doesn't work yet
 
 exports.client_remove = (photoId) !->
 	userId = Db.shared.get(photoId, 'userId')
-	return if userId != Plugin.userId() and !Plugin.userIsAdmin()
+	return if userId != App.userId() and !App.userIsAdmin()
 
 	Photo.remove key if key = Db.shared.get(photoId, 'key')
 	Db.shared.remove(photoId)
